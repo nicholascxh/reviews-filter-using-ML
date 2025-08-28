@@ -1,0 +1,33 @@
+ads:
+  url_regex:
+    - 'https?://\S+'
+    - 'www\.[\w.-]+'
+  phone_regex:
+    - '\b\+?\d[\d\s-]{7,}\b'
+  keywords:
+    - 'promo'
+    - 'discount'
+    - '% off'
+    - 'coupon'
+    - 'call now'
+    - 'dm us'
+    - 'book via'
+
+irrelevant:
+  min_cosine_to_business: 0.25
+  off_topic_keywords:
+    restaurant:
+      - 'iphone'
+      - 'laptop'
+      - 'headphones'
+      - 'delivery app bug'
+
+rant_no_visit:
+  positive_cues:
+    - "haven't been"
+    - 'never been'
+    - "didn't try"
+    - 'i heard'
+    - 'people say'
+    - 'someone told me'
+  negation_window: 3
