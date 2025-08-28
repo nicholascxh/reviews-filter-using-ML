@@ -3,7 +3,8 @@ ads:
     - 'https?://\S+'
     - 'www\.[\w.-]+'
   phone_regex:
-    - '\b\+?\d[\d\s-]{7,}\b'
+    # Allow spaces, parentheses and dots, e.g., +65 9123-4567 or (65) 9123 4567 or 65.9123.4567
+    - '\b\+?\d[\d\s().-]{7,}\b'
   keywords:
     - 'promo'
     - 'discount'
@@ -12,15 +13,37 @@ ads:
     - 'call now'
     - 'dm us'
     - 'book via'
+    - 'whatsapp'
+    - 'telegram'
+    - 'line id'
+    - 'use code'
 
 irrelevant:
-  min_cosine_to_business: 0.25
+  min_cosine_to_business: 0.1  # we'll sweep this next
   off_topic_keywords:
     restaurant:
       - 'iphone'
       - 'laptop'
       - 'headphones'
       - 'delivery app bug'
+      - 'firmware'
+      - 'graphics card'
+    electronics:
+      - 'latte'
+      - 'croissant'
+      - 'cappuccino'
+      - 'pastry'
+      - 'mocha'
+    park:
+      - 'pizza'
+      - 'burger'
+      - 'pasta'
+      - 'wifi'
+    spa:
+      - 'pizza'
+      - 'burger'
+      - 'fries'
+      - 'pasta'
 
 rant_no_visit:
   positive_cues:

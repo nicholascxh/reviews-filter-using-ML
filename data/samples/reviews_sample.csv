@@ -1,13 +1,13 @@
 review_id,business_id,biz_name,biz_cats,biz_desc,review_text,stars,label_relevant,label_ads,label_irrelevant,label_rant_no_visit
 r1,b1,Sunrise Coffee,"Cafe, Coffee",Small-batch roastery and cafe near Riverwalk.,Lovely flat white and chill vibes. Beans are freshly roasted on-site. I'll be back!,5,1,0,0,0
 r2,b1,Sunrise Coffee,"Cafe, Coffee",Small-batch roastery and cafe near Riverwalk.,Best cafe ever! Visit www.get-50off-coffee.com for discounts!,5,1,1,0,0
-r3,b1,Sunrise Coffee,"Cafe, Coffee",Small-batch roastery and cafe near Riverwalk.,I haven't been here but my friend said it's terrible. Avoid!!,1,0,0,0,1
+r3,b1,Sunrise Coffee,"Cafe, Coffee",Small-batch roastery and cafe near Riverwalk.,I haven't been here but my friend said it's terrible. Avoid!!,1,1,0,0,1
 r4,b2,Mario's Pizzeria,"Restaurant, Italian",Family-run pizzeria serving Neapolitan pies.,"Great margherita pizza, thin crust and fast service.",4,1,0,0,0
 r5,b2,Mario's Pizzeria,"Restaurant, Italian",Family-run pizzeria serving Neapolitan pies.,My new iPhone camera is amazing. Also traffic was bad today.,3,0,0,1,0
 r6,b3,Lotus Spa,"Spa, Wellness",Day spa offering massages and facials.,Call +65 9123-4567 to book now! Tell them Mike sent you for a promo.,5,1,1,0,0
-r7,b3,Lotus Spa,"Spa, Wellness",Day spa offering massages and facials.,"Never been, but people say it's overpriced.",1,0,0,0,1
+r7,b3,Lotus Spa,"Spa, Wellness",Day spa offering massages and facials.,"Never been, but people say it's overpriced.",1,1,0,0,1
 r8,b4,Techie Hub,"Electronics, Computers",Computer repair & custom PC builds.,Fixed my laptop hinge in 2 hours. Transparent pricing.,5,1,0,0,0
 r9,b4,Techie Hub,"Electronics, Computers",Computer repair & custom PC builds.,Great coffee and croissants here!,4,0,0,1,0
 r10,b5,Green Leaf Park,"Park, Outdoor",Urban park with jogging paths and a pond.,"Beautiful park, clean restrooms, saw turtles by the pond.",5,1,0,0,0
 r11,b5,Green Leaf Park,"Park, Outdoor",Urban park with jogging paths and a pond.,DM us on Instagram @park_deals for picnic packages!,5,1,1,0,0
-r12,b2,Mario's Pizzeria,"Restaurant, Italian",Family-run pizzeria serving Neapolitan pies.,"Didn't try the pizza, just walked past and heard it's not worth it.",1,0,0,0,1
+r12,b2,Mario's Pizzeria,"Restaurant, Italian",Family-run pizzeria serving Neapolitan pies.,"Didn't try the pizza, just walked past and heard it's not worth it.",1,1,0,0,1

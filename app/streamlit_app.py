@@ -1,7 +1,9 @@
+# at the top
 import streamlit as st
 import pandas as pd
 from src.data_pipeline import load_reviews_csv
 from src.rules_engine import load_policy, predict_batch
+from src.ensemble import combine_rules_ml   # <-- add
 
 st.set_page_config(page_title="Trustworthy Location Reviews", layout="wide")
 st.title("Filtering the Noise — Review Moderation (Starter)")
@@ -10,6 +12,10 @@ cfg = load_policy("configs/policy.yaml")
 
 st.sidebar.header("Input")
 mode = st.sidebar.radio("Mode", ["Single review", "Batch CSV"], index=0)
+
+# NEW: ML toggle + ensemble mode
+use_ml = st.sidebar.checkbox("Use ML model (TF-IDF + Logistic)", value=False)
+ens_mode = st.sidebar.selectbox("Ensemble mode", ["precision","balanced","recall"], index=0)
 
 if mode == "Single review":
     biz_name = st.text_input("Business Name", "Sunrise Coffee")
@@ -23,7 +29,10 @@ if mode == "Single review":
             "biz_desc": biz_desc,
             "review_text": review_text
         }])
-        out = predict_batch(df, cfg)
+        if use_ml:
+            out = combine_rules_ml(df, mode=ens_mode)
+        else:
+            out = predict_batch(df, cfg)
         st.json(out[0])
 else:
     st.write("Upload a CSV with columns: biz_name,biz_cats,biz_desc,review_text (optional: labels).")
@@ -34,7 +43,10 @@ else:
             df = load_reviews_csv(path)
         else:
             df = pd.read_csv(file)
-        out = predict_batch(df, cfg)
+        if use_ml:
+            out = combine_rules_ml(df, mode=ens_mode)
+        else:
+            out = predict_batch(df, cfg)
         res = pd.concat([df, pd.DataFrame(out)], axis=1)
         st.dataframe(res)
         st.download_button("Download Results", res.to_csv(index=False), file_name="predictions.csv")
