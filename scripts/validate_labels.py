@@ -16,7 +16,6 @@ if len(bad):
     print("Found rows with inconsistent relevancy/irrelevant labels:")
     print(bad[["review_id","review_text","label_relevant","label_irrelevant"]])
 
-    # Auto-fix option: make label_relevant = 1 - label_irrelevant
     df.loc[bad.index, "label_relevant"] = 1 - df.loc[bad.index, "label_irrelevant"]
     out = path.replace(".csv","_fixed.csv")
     df.to_csv(out, index=False, encoding="utf-8")
