@@ -3,7 +3,6 @@ ads:
     - 'https?://\S+'
     - 'www\.[\w.-]+'
   phone_regex:
-    # Allow spaces, parentheses and dots, e.g., +65 9123-4567 or (65) 9123 4567 or 65.9123.4567
     - '\b\+?\d[\d\s().-]{7,}\b'
   keywords:
     - 'promo'
@@ -13,39 +12,72 @@ ads:
     - 'call now'
     - 'dm us'
     - 'book via'
-    - 'whatsapp'
-    - 'telegram'
-    - 'line id'
-    - 'use code'
 
 irrelevant:
-  min_cosine_to_business: 0.1  # we'll sweep this next
+  # Cosine similarity threshold (review vs business context) below which we suspect off-topic.
+  min_cosine_to_business: 0.25
+
+  # Require at least this many shared tokens between the review and the business "anchor" tokens
+  # (from business name, categories, and positive_on_topic terms) to consider it on-topic.
+  # If overlap >= min_anchor_tokens, we will NOT flag as irrelevant even if cosine is low.
+  min_anchor_tokens: 1
+
+  # Extra off-topic keywords per business category (if any is present, we flag irrelevant)
   off_topic_keywords:
     restaurant:
       - 'iphone'
       - 'laptop'
       - 'headphones'
       - 'delivery app bug'
-      - 'firmware'
-      - 'graphics card'
-    electronics:
-      - 'latte'
-      - 'croissant'
-      - 'cappuccino'
-      - 'pastry'
-      - 'mocha'
-    park:
-      - 'pizza'
-      - 'burger'
-      - 'pasta'
-      - 'wifi'
     spa:
+      - 'motherboard'
+      - 'ssd'
+      - 'gpu'
+    electronics:
+      - 'masseuse'
+      - 'sauna'
+      - 'facial'
+    park:
+      - 'graphics card'
+      - 'rtx'
+      - 'motherboard'
+
+  # Positive on-topic terms per category; if these appear in the review, we bias toward "on-topic"
+  # and will NOT mark as irrelevant purely due to low cosine.
+  positive_on_topic:
+    restaurant:
+      - 'menu'
+      - 'staff'
+      - 'service'
+      - 'reservation'
       - 'pizza'
-      - 'burger'
-      - 'fries'
       - 'pasta'
+      - 'table'
+      - 'bill'
+      - 'waiter'
+      - 'chef'
+    spa:
+      - 'massage'
+      - 'therapist'
+      - 'appointment'
+      - 'facial'
+      - 'hot stone'
+    electronics:
+      - 'repair'
+      - 'warranty'
+      - 'diagnostic'
+      - 'parts'
+      - 'keyboard'
+      - 'screen'
+    park:
+      - 'trail'
+      - 'playground'
+      - 'picnic'
+      - 'pond'
+      - 'jogging'
 
 rant_no_visit:
+  # Phrases that strongly suggest the reviewer did not actually visit/try the place
   positive_cues:
     - "haven't been"
     - 'never been'
@@ -53,4 +85,5 @@ rant_no_visit:
     - 'i heard'
     - 'people say'
     - 'someone told me'
+  # Reserved for more advanced cue-negation logic; kept for compatibility.
   negation_window: 3
