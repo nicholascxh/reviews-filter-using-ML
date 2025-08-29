@@ -1,4 +1,3 @@
-# at the top
 import streamlit as st
 import pandas as pd
 from src.data_pipeline import load_reviews_csv
@@ -13,8 +12,8 @@ cfg = load_policy("configs/policy.yaml")
 st.sidebar.header("Input")
 mode = st.sidebar.radio("Mode", ["Single review", "Batch CSV"], index=0)
 
-# NEW: ML toggle + ensemble mode
-use_ml = st.sidebar.checkbox("Use ML model (TF-IDF + Logistic)", value=False)
+# ML toggle + ensemble mode
+backend = st.sidebar.selectbox("Model backend", ["Rules only", "TF-IDF LR", "Transformer"], index=1)
 ens_mode = st.sidebar.selectbox("Ensemble mode", ["precision","balanced","recall"], index=0)
 
 if mode == "Single review":
@@ -29,10 +28,14 @@ if mode == "Single review":
             "biz_desc": biz_desc,
             "review_text": review_text
         }])
-        if use_ml:
+        if backend == "Rules only":
+            out = predict_batch(df, cfg)
+        elif backend == "TF-IDF LR":
+            from src.ensemble import combine_rules_ml
             out = combine_rules_ml(df, mode=ens_mode)
         else:
-            out = predict_batch(df, cfg)
+            from src.ensemble import combine_rules_transformer
+            out = combine_rules_transformer(df, mode=ens_mode)        
         st.json(out[0])
 else:
     st.write("Upload a CSV with columns: biz_name,biz_cats,biz_desc,review_text (optional: labels).")
@@ -43,10 +46,14 @@ else:
             df = load_reviews_csv(path)
         else:
             df = pd.read_csv(file)
-        if use_ml:
+        if backend == "Rules only":
+            out = predict_batch(df, cfg)
+        elif backend == "TF-IDF LR":
+            from src.ensemble import combine_rules_ml
             out = combine_rules_ml(df, mode=ens_mode)
         else:
-            out = predict_batch(df, cfg)
+            from src.ensemble import combine_rules_transformer
+            out = combine_rules_transformer(df, mode=ens_mode)
         res = pd.concat([df, pd.DataFrame(out)], axis=1)
         st.dataframe(res)
         st.download_button("Download Results", res.to_csv(index=False), file_name="predictions.csv")
