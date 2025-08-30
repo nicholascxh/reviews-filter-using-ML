@@ -2,8 +2,6 @@ from __future__ import annotations
 import os
 import json
 import math
-import time
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -12,7 +10,8 @@ import streamlit as st
 
 # Local imports
 from src.rules_engine import load_policy, predict_batch  # rules & policy
-# Transformer imports are optional (app can work Rules-only)
+
+# Optional transformer (app works Rules-only if not available)
 try:
     import torch
     from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -22,9 +21,9 @@ except Exception:
     AutoModelForSequenceClassification = None
 
 
-# ----------------------------
-# Small utilities
-# ----------------------------
+# =========================
+# Utilities
+# =========================
 def coerce_str(x) -> str:
     if x is None:
         return ""
@@ -35,14 +34,15 @@ def coerce_str(x) -> str:
         return ""
     return s
 
-def normalize_df_text(df: pd.DataFrame, cols=("review_text","biz_name","biz_cats","biz_desc")) -> pd.DataFrame:
+
+def normalize_df_text(df: pd.DataFrame, cols=("review_text", "biz_name", "biz_cats", "biz_desc")) -> pd.DataFrame:
     df = df.copy()
     for c in cols:
         if c in df.columns:
             df[c] = df[c].apply(coerce_str)
         else:
             df[c] = ""
-    # Optional: enforce minimal schema columns
+    # Minimal schema guarantees
     if "review_id" not in df.columns:
         df["review_id"] = [f"r{i:08d}" for i in range(len(df))]
     if "business_id" not in df.columns:
@@ -50,9 +50,9 @@ def normalize_df_text(df: pd.DataFrame, cols=("review_text","biz_name","biz_cats
     return df
 
 
-# ----------------------------
+# =========================
 # Transformer scoring
-# ----------------------------
+# =========================
 @st.cache_resource(show_spinner=False)
 def load_transformer(model_dir: str):
     if not torch or not AutoTokenizer:
@@ -64,38 +64,41 @@ def load_transformer(model_dir: str):
     model.eval()
     return tok, model, device
 
-def sigmoid(x: np.ndarray) -> np.ndarray:
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1 / (1 + np.exp(-x))
 
-def transformer_score_irrelevant(df: pd.DataFrame, model_dir: str, text_col: str = "review_text", batch_size: int = 32) -> np.ndarray:
+
+def transformer_score_irrelevant(
+    df: pd.DataFrame,
+    model_dir: str,
+    text_col: str = "review_text",
+    batch_size: int = 32,
+    max_length: int = 256
+) -> np.ndarray:
     """Return P(irrelevant=1) for each row using a single-label classifier trained for label_irrelevant."""
     tok, model, device = load_transformer(model_dir)
     probs: List[float] = []
     with torch.no_grad():
         for i in range(0, len(df), batch_size):
-            chunk = df.iloc[i:i+batch_size]
+            chunk = df.iloc[i:i + batch_size]
             texts = [coerce_str(t) for t in chunk[text_col].tolist()]
-            enc = tok(texts, padding=True, truncation=True, max_length=256, return_tensors="pt")
+            enc = tok(texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt")
             enc = {k: v.to(device) for k, v in enc.items()}
             out = model(**enc)
-            if hasattr(out, "logits"):
-                logits = out.logits.detach().cpu().numpy()
-            else:
-                logits = out[0].detach().cpu().numpy()
-            # assume binary single-label: shape (B,2) or (B,)
+            logits = out.logits.detach().cpu().numpy() if hasattr(out, "logits") else out[0].detach().cpu().numpy()
+            # If model outputs 2-class logits, take softmax proba for class 1; otherwise sigmoid
             if logits.ndim == 2 and logits.shape[1] == 2:
-                # class 1 prob via softmax
                 p = torch.softmax(torch.tensor(logits), dim=1).numpy()[:, 1]
             else:
-                # one logit; apply sigmoid
-                p = sigmoid(logits.squeeze())
+                p = _sigmoid(logits.squeeze())
             probs.extend(p.tolist())
     return np.array(probs, dtype=float)
 
 
-# ----------------------------
+# =========================
 # Ensemble logic
-# ----------------------------
+# =========================
 def combine_predictions(
     df: pd.DataFrame,
     rules_df: pd.DataFrame,
@@ -104,14 +107,13 @@ def combine_predictions(
     thr_irrelevant: float = 0.5,
 ):
     """
-    mode: 'rules', 'transformer', 'precision', 'recall'
-      - rules:    ads/rant/irrelevant from Rules only
-      - transformer: only irrelevant from transformer+thr, ads/rant=0
-      - precision: irrelevant = Rules AND (prob>=thr)
-      - recall:    irrelevant = Rules OR  (prob>=thr)
-    Returns: DataFrame with columns:
-      label_ads, label_irrelevant, label_rant_no_visit, label_relevant,
-      prob_irrelevant (if transformer provided), reasons (from rules)
+    mode options:
+      - 'rules'        : ads/rant/irrelevant from Rules only
+      - 'transformer'  : only irrelevant from transformer+thr, ads/rant=0
+      - 'precision'    : irrelevant = Rules AND (prob>=thr)
+      - 'recall'       : irrelevant = Rules OR  (prob>=thr)
+    Returns DataFrame columns:
+      label_ads, label_irrelevant, label_rant_no_visit, label_relevant, prob_irrelevant, reasons
     """
     ads = rules_df["ads"].astype(int).values
     rant = rules_df["rant_no_visit"].astype(int).values
@@ -125,7 +127,7 @@ def combine_predictions(
         irr_t = (transformer_probs >= thr_irrelevant).astype(int)
         irr = irr_t
         prob = transformer_probs
-        ads = np.zeros_like(irr)  # transformer model is only for irrelevant
+        ads = np.zeros_like(irr)   # single-label transformer for irrelevant only
         rant = np.zeros_like(irr)
     elif mode == "precision":
         irr_t = (transformer_probs >= thr_irrelevant).astype(int)
@@ -150,12 +152,13 @@ def combine_predictions(
     return out
 
 
-# ----------------------------
-# Metrics (if GT labels are present)
-# ----------------------------
+# =========================
+# Metrics helpers
+# =========================
 def available_gt_columns(df: pd.DataFrame) -> List[str]:
     needed = ["label_ads", "label_irrelevant", "label_rant_no_visit"]
     return [c for c in needed if c in df.columns]
+
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, names: List[str]) -> Dict:
     from sklearn.metrics import classification_report
@@ -163,62 +166,62 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, names: List[str]) ->
     return rep
 
 
-# ----------------------------
+# =========================
 # UI
-# ----------------------------
-st.set_page_config(page_title="Trustworthy Location Reviews — Demo", page_icon="🧭", layout="wide")
+# =========================
+st.set_page_config(page_title="Trustworthy Location Reviews — Demo", layout="wide")
 
 with st.sidebar:
-    st.title("🧭 Trustworthy Reviews")
-    st.caption("ML + Rules to filter ads, rants, and off-topic reviews")
+    st.title("Trustworthy Reviews")
+    st.caption("ML + Rules to filter ads, rants, and off-topic reviews with explainable reasons.")
 
-    st.header("⚙️ Settings")
-
+    st.header("Settings")
     policy_path = st.text_input(
         "Policy YAML",
         value="configs/policy.yaml",
-        help="Rules config file used by the policy engine."
+        help="Rules configuration used by the policy engine."
     )
-
     model_dir = st.text_input(
         "Transformer model directory",
         value="models/transformer/distilbert",
-        help="Folder containing the fine-tuned transformer (e.g., DistilBERT/DeBERTa). Leave blank for Rules-only."
+        help="Folder containing the fine-tuned transformer (e.g., DistilBERT). Leave blank for Rules-only."
     )
-
     thr_json = st.text_input(
         "Thresholds JSON",
         value="models/thresholds_transformer.json",
-        help="Contains tuned thresholds. If missing, we'll default to 0.5 for 'irrelevant'."
+        help="Per-label tuned thresholds JSON. If missing, default 0.50 will be used for 'irrelevant'."
     )
 
-    mode = st.selectbox(
-        "Prediction mode",
-        ["Ensemble (precision)", "Ensemble (recall)", "Rules only", "Transformer only"],
-        index=0,
-        help="Precision = stricter (Rules AND Transformer). Recall = broader (Rules OR Transformer)."
-    )
-
-    batch_size = st.slider("Transformer batch size", 8, 64, 32, 8)
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        mode = st.selectbox(
+            "Prediction mode",
+            ["Ensemble: precision", "Ensemble: recall", "Rules only", "Transformer only"],
+            index=0,
+            help="Precision = Rules AND Transformer; Recall = Rules OR Transformer."
+        )
+    with col_m2:
+        batch_size = st.slider("Transformer batch size", 8, 64, 32, 8)
 
     st.markdown("---")
-    st.caption("Tip: include `label_*` columns in your CSV to see metrics.")
+    st.header("Data Controls")
+    limit_rows = st.number_input("Row limit for preview (0 = all)", min_value=0, value=2000, step=500)
+    use_tuned_thr = st.checkbox("Use threshold from JSON (if available)", value=True)
+    thr_override = st.slider("Override threshold for 'irrelevant'", 0.0, 1.0, 0.50, 0.01)
+    st.caption("Tip: add `label_*` columns to your CSV to see metrics.")
 
 st.title("Trustworthy Location Reviews — Live Demo")
 
 # File input
-colL, colR = st.columns([2,1])
+colL, colR = st.columns([2, 1])
 with colL:
     uploaded = st.file_uploader("Upload a CSV", type=["csv"])
 with colR:
-    st.write("")
-    st.write("")
-    use_sample = st.button("Load sample reviews", help="Loads a small internal sample for a quick preview.")
+    use_sample = st.button("Load sample reviews", help="Loads a small sample for a quick preview.")
 
 if uploaded:
     df = pd.read_csv(uploaded)
 elif use_sample:
-    # Minimal sample for demo; replace path if you want a specific file
     sample_path = "data/samples/reviews_sample.csv"
     if os.path.exists(sample_path):
         df = pd.read_csv(sample_path)
@@ -226,11 +229,14 @@ elif use_sample:
         st.warning("Sample file not found. Please upload your CSV.")
         st.stop()
 else:
-    st.info("Upload a CSV with at least a `review_text` column (optionally biz_name, biz_cats, biz_desc).")
+    st.info("Upload a CSV with at least a `review_text` column (optional: biz_name, biz_cats, biz_desc).")
     st.stop()
 
+if limit_rows and limit_rows > 0:
+    df = df.head(int(limit_rows))
+
 # Normalize input columns
-df = normalize_df_text(df, cols=("review_text","biz_name","biz_cats","biz_desc"))
+df = normalize_df_text(df, cols=("review_text", "biz_name", "biz_cats", "biz_desc"))
 
 # Load policy & run rules
 try:
@@ -239,42 +245,46 @@ except Exception as e:
     st.error(f"Failed to load policy at {policy_path}: {e}")
     st.stop()
 
-with st.spinner("Running policy rules..."):
-    rules_list = predict_batch(df, cfg)  # list of dicts
+with st.spinner("Applying policy rules..."):
+    rules_list = predict_batch(df, cfg)
 rules_df = pd.DataFrame(rules_list)
 
 # Load thresholds
-thr_irrelevant = 0.5
-if os.path.exists(thr_json):
+thr_irrelevant = 0.50
+if use_tuned_thr and os.path.exists(thr_json):
     try:
         thr = json.load(open(thr_json, "r", encoding="utf-8"))
-        thr_irrelevant = float(thr.get("irrelevant", 0.5))
+        thr_irrelevant = float(thr.get("irrelevant", thr_irrelevant))
     except Exception as e:
-        st.warning(f"Could not read thresholds from {thr_json} ({e}). Using 0.5.")
+        st.warning(f"Could not read thresholds from {thr_json} ({e}). Using default 0.50.")
+else:
+    thr_irrelevant = thr_override
 
-# Optional: transformer scoring for irrelevant
+# Optional transformer
 transformer_probs = None
-want_transformer = mode in {"Transformer only", "Ensemble (precision)", "Ensemble (recall)"} and len(model_dir.strip()) > 0
+want_transformer = (mode in {"Transformer only", "Ensemble: precision", "Ensemble: recall"}) and len(model_dir.strip()) > 0
 if want_transformer:
     if AutoTokenizer is None:
-        st.error("Transformers not installed. Please `pip install torch transformers`.")
-        st.stop()
-    try:
-        with st.spinner("Loading transformer & scoring (irrelevant)…"):
-            transformer_probs = transformer_score_irrelevant(df, model_dir=model_dir, text_col="review_text", batch_size=batch_size)
-    except Exception as e:
-        st.warning(f"Transformer scoring failed ({e}). Falling back to Rules only.")
-        transformer_probs = None
-        mode = "Rules only"
+        st.warning("Transformers not installed. Falling back to Rules-only.")
+        want_transformer = False
+    else:
+        try:
+            with st.spinner("Scoring with transformer (irrelevant)..."):
+                transformer_probs = transformer_score_irrelevant(
+                    df, model_dir=model_dir, text_col="review_text", batch_size=batch_size, max_length=256
+                )
+        except Exception as e:
+            st.warning(f"Transformer scoring failed ({e}). Falling back to Rules-only.")
+            transformer_probs = None
+            want_transformer = False
 
 # Ensemble
 mode_key = {
     "Rules only": "rules",
     "Transformer only": "transformer",
-    "Ensemble (precision)": "precision",
-    "Ensemble (recall)": "recall",
+    "Ensemble: precision": "precision",
+    "Ensemble: recall": "recall",
 }[mode]
-
 out = combine_predictions(
     df=df,
     rules_df=rules_df,
@@ -283,15 +293,39 @@ out = combine_predictions(
     thr_irrelevant=thr_irrelevant,
 )
 
-# Join with original to display context
-pred_df = pd.concat([df[["review_id","business_id","biz_name","biz_cats","review_text"]], out], axis=1)
+# Join with original for display
+pred_df = pd.concat([df[["review_id", "business_id", "biz_name", "biz_cats", "review_text"]], out], axis=1)
+
+# Optional filters (client-side)
+st.subheader("Filters")
+colf1, colf2, colf3 = st.columns([2, 1, 1])
+with colf1:
+    q = st.text_input("Search text", help="Matches review text, business name or category.")
+with colf2:
+    show_flagged_only = st.checkbox("Show only flagged reviews", value=False)
+with colf3:
+    sort_by_prob = st.checkbox("Sort by probability (irrelevant)", value=False)
+
+view_df = pred_df.copy()
+if q.strip():
+    ql = q.lower()
+    mask = (
+        view_df["review_text"].str.lower().str.contains(ql, na=False) |
+        view_df["biz_name"].str.lower().str.contains(ql, na=False) |
+        view_df["biz_cats"].str.lower().str.contains(ql, na=False)
+    )
+    view_df = view_df[mask]
+if show_flagged_only:
+    view_df = view_df[(view_df["label_ads"] == 1) | (view_df["label_irrelevant"] == 1) | (view_df["label_rant_no_visit"] == 1)]
+if sort_by_prob and "prob_irrelevant" in view_df.columns:
+    view_df = view_df.sort_values("prob_irrelevant", ascending=False)
 
 # Metrics if GT available
 gt_cols = available_gt_columns(df)
+st.subheader("Metrics")
 if gt_cols:
-    st.subheader("📊 Metrics (Ground Truth present in your CSV)")
     y_true = df[gt_cols].astype(int).values
-    y_pred = pred_df[["label_ads","label_irrelevant","label_rant_no_visit"]].astype(int).values
+    y_pred = pred_df[["label_ads", "label_irrelevant", "label_rant_no_visit"]].astype(int).values
     rep = compute_metrics(y_true, y_pred, names=gt_cols)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("ADS F1", f"{rep['label_ads']['f1-score']:.3f}")
@@ -299,49 +333,55 @@ if gt_cols:
     c3.metric("RANT F1", f"{rep['label_rant_no_visit']['f1-score']:.3f}")
     c4.metric("Macro F1", f"{rep['macro avg']['f1-score']:.3f}")
 else:
-    st.subheader("📊 Metrics")
-    st.caption("No ground-truth `label_*` columns found. Showing descriptive charts only.")
+    st.caption("No ground-truth `label_*` columns found in this CSV. Charts below reflect predictions only.")
 
-# Quick charts
+# Charts
 left, right = st.columns(2)
 with left:
-    st.markdown("**Predicted label distribution**")
-    dist = pred_df[["label_ads","label_irrelevant","label_rant_no_visit"]].sum().reset_index()
-    dist.columns = ["label","count"]
+    st.markdown("Predicted label counts")
+    dist = pred_df[["label_ads", "label_irrelevant", "label_rant_no_visit"]].sum().reset_index()
+    dist.columns = ["label", "count"]
     st.bar_chart(dist.set_index("label"))
 with right:
     if transformer_probs is not None:
-        st.markdown("**Transformer prob(irrelevant) histogram**")
-        hist = pd.DataFrame({"prob_irrelevant": pred_df["prob_irrelevant"]})
-        st.bar_chart(np.histogram(hist["prob_irrelevant"], bins=10, range=(0,1))[0])
+        st.markdown("Transformer P(irrelevant) histogram")
+        # Compute histogram in Python for consistent bins
+        counts, bins = np.histogram(pred_df["prob_irrelevant"], bins=10, range=(0, 1))
+        hist_df = pd.DataFrame({"bin": bins[:-1], "count": counts})
+        st.bar_chart(hist_df.set_index("bin"))
 
-# Table (styled)
-st.subheader("🔎 Predictions")
+# Table (styled highlights)
+st.subheader("Predictions")
 def color_chip(val: int) -> str:
-    if val == 1: return "background-color: #FFD6E7"  # light red/pink
-    return ""
-show_cols = ["review_id","biz_name","biz_cats","label_ads","label_irrelevant","label_rant_no_visit","label_relevant","prob_irrelevant","reasons","review_text"]
-show_cols = [c for c in show_cols if c in pred_df.columns]
-styled = pred_df[show_cols].copy()
-for c in ["label_ads","label_irrelevant","label_rant_no_visit","label_relevant"]:
+    return "background-color: #FFEEE9" if int(val) == 1 else ""
+
+show_cols = [
+    "review_id", "biz_name", "biz_cats",
+    "label_ads", "label_irrelevant", "label_rant_no_visit", "label_relevant",
+    "prob_irrelevant", "reasons", "review_text"
+]
+show_cols = [c for c in show_cols if c in view_df.columns]
+styled = view_df[show_cols].copy()
+for c in ["label_ads", "label_irrelevant", "label_rant_no_visit", "label_relevant"]:
     if c in styled.columns:
         styled[c] = styled[c].astype(int)
+
 st.dataframe(
-    styled.style.applymap(color_chip, subset=["label_ads","label_irrelevant","label_rant_no_visit"]),
+    styled.style.applymap(color_chip, subset=["label_ads", "label_irrelevant", "label_rant_no_visit"]),
     use_container_width=True,
-    height=420
+    height=480
 )
 
-# Download
+# Downloads
+st.markdown("---")
 csv_bytes = pred_df.to_csv(index=False).encode("utf-8")
 st.download_button(
-    "⬇️ Download predictions CSV",
+    "Download predictions CSV",
     data=csv_bytes,
     file_name="predictions_streamlit.csv",
     mime="text/csv",
 )
 
 # Footer
-st.markdown("---")
-gpu = "✅" if (torch and torch.cuda.is_available()) else "❌"
-st.caption(f"Policy: `{policy_path}` • Model: `{model_dir or 'N/A'}` • Thr(irrelevant)={thr_irrelevant:.2f} • GPU: {gpu}")
+gpu_txt = "Yes" if (torch and torch.cuda.is_available()) else "No"
+st.caption(f"Policy: {policy_path} • Model: {model_dir or 'N/A'} • Thr(irrelevant)={thr_irrelevant:.2f} • GPU: {gpu_txt}")
